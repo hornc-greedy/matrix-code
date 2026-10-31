@@ -28,6 +28,8 @@ const LONGEST_TRAIL: f32 = 0.67;
 const SHORTEST_GAP: f32 = 0.5;
 /// Longest distance between the starts of two trails, as a share of the height.
 const LONGEST_GAP: f32 = 1.5;
+/// Chance per frame that a lit character turns into another one.
+const CHARACTER_CHANGE_CHANCE: f32 = 0.011;
 
 /// Shows the animation until a key is pressed.
 ///
@@ -87,6 +89,7 @@ fn animate() -> io::Result<()> {
 
 struct Screen {
     rows: u16,
+    characters: Vec<char>,
     columns: Vec<Column>,
     /// The cells of the last frame, row by row.
     drawn: Vec<Option<(char, u8)>>,
@@ -101,6 +104,7 @@ impl Screen {
             .collect();
         Self {
             rows: height,
+            characters,
             columns,
             drawn: Vec::new(),
         }
@@ -108,7 +112,7 @@ impl Screen {
 
     fn advance(&mut self) {
         for column in &mut self.columns {
-            column.advance(self.rows);
+            column.advance(self.rows, &self.characters);
         }
     }
 
@@ -170,7 +174,7 @@ impl Column {
         }
     }
 
-    fn advance(&mut self, rows: u16) {
+    fn advance(&mut self, rows: u16, characters: &[char]) {
         let height = f32::from(rows);
         for trail in &mut self.trails {
             trail.cursor_row += self.speed;
@@ -185,6 +189,12 @@ impl Column {
                 length: (random_between(SHORTEST_TRAIL, LONGEST_TRAIL) * height) as u16,
             });
             self.rows_until_next_trail = random_between(SHORTEST_GAP, LONGEST_GAP) * height;
+        }
+
+        for row in 0..rows {
+            if self.color(row).is_some() && fastrand::f32() < CHARACTER_CHANGE_CHANCE {
+                self.characters[usize::from(row)] = random_character(characters);
+            }
         }
     }
 
@@ -266,7 +276,7 @@ mod tests {
     fn trails_never_overtake_each_other() {
         let mut column = Column::new(0, 40, &['a']);
         for _ in 0..500 {
-            column.advance(40);
+            column.advance(40, &['a']);
             for pair in column.trails.windows(2) {
                 assert!(pair[0].cursor_row > pair[1].cursor_row);
             }
@@ -288,7 +298,7 @@ mod tests {
                 length: 3,
             },
         ];
-        column.advance(10);
+        column.advance(10, &['a']);
         assert_eq!(column.trails.len(), 1);
         assert!(column.trails[0].cursor_row < 13.0);
     }
