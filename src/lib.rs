@@ -14,10 +14,16 @@ const FRAME_TIME: Duration = Duration::from_millis(33);
 const COLUMN_SPACING: usize = 2;
 /// Color of the cursor at the bottom of each trail, from the 256-color palette.
 const CURSOR_COLOR: u8 = 231;
+/// Colors of the trail above the cursor, from bright to dark.
+const TRAIL_COLORS: [u8; 7] = [157, 83, 46, 40, 34, 28, 22];
 /// Rows per frame of the slowest column. Each column has a speed of its own.
 const SLOWEST_SPEED: f32 = 0.5;
 /// Rows per frame of the fastest column.
 const FASTEST_SPEED: f32 = 1.0;
+/// Shortest trail as a share of the screen height.
+const SHORTEST_TRAIL: f32 = 0.25;
+/// Longest trail as a share of the screen height.
+const LONGEST_TRAIL: f32 = 0.67;
 /// Shortest distance between the starts of two trails, as a share of the height.
 const SHORTEST_GAP: f32 = 0.5;
 /// Longest distance between the starts of two trails, as a share of the height.
@@ -120,9 +126,14 @@ impl Screen {
                     match cell {
                         None => queue!(out, Print(' '))?,
                         Some((character, color)) => {
+                            let weight = if color == CURSOR_COLOR {
+                                Attribute::Bold
+                            } else {
+                                Attribute::NormalIntensity
+                            };
                             queue!(
                                 out,
-                                SetAttribute(Attribute::Bold),
+                                SetAttribute(weight),
                                 SetForegroundColor(Color::AnsiValue(color)),
                                 Print(character)
                             )?;
@@ -164,11 +175,15 @@ impl Column {
         for trail in &mut self.trails {
             trail.cursor_row += self.speed;
         }
-        self.trails.retain(|trail| trail.cursor_row < height);
+        // A trail is gone once its top has left the screen
+        self.trails.retain(|trail| trail.top_row() < height);
 
         self.rows_until_next_trail -= self.speed;
         if self.rows_until_next_trail <= 0.0 {
-            self.trails.push(Trail { cursor_row: 0.0 });
+            self.trails.push(Trail {
+                cursor_row: 0.0,
+                length: (random_between(SHORTEST_TRAIL, LONGEST_TRAIL) * height) as u16,
+            });
             self.rows_until_next_trail = random_between(SHORTEST_GAP, LONGEST_GAP) * height;
         }
     }
@@ -179,17 +194,38 @@ impl Column {
         Some((self.characters[usize::from(row)], color))
     }
 
-    /// Only the cursor of a trail is lit.
+    /// The newest trail at or below a row passed it last and decides its color.
     fn color(&self, row: u16) -> Option<u8> {
-        self.trails
+        let trail = self
+            .trails
             .iter()
-            .any(|trail| trail.cursor_row as u16 == row)
-            .then_some(CURSOR_COLOR)
+            .rev()
+            .find(|trail| trail.cursor_row as u16 >= row)?;
+        trail_color(trail.cursor_row as u16 - row, trail.length)
     }
 }
 
 struct Trail {
     cursor_row: f32,
+    length: u16,
+}
+
+impl Trail {
+    fn top_row(&self) -> f32 {
+        self.cursor_row - f32::from(self.length)
+    }
+}
+
+/// Color of a cell `distance` rows above the cursor of a trail.
+fn trail_color(distance: u16, trail_length: u16) -> Option<u8> {
+    if distance == 0 {
+        return Some(CURSOR_COLOR);
+    }
+    if distance > trail_length {
+        return None;
+    }
+    let index = usize::from(distance - 1) * TRAIL_COLORS.len() / usize::from(trail_length);
+    Some(TRAIL_COLORS[index])
 }
 
 /// Half-width katakana take one cell each, like the digits.
@@ -210,6 +246,23 @@ mod tests {
     use super::*;
 
     #[test]
+    fn trail_fades_from_cursor_to_dark() {
+        assert_eq!(trail_color(0, 14), Some(CURSOR_COLOR));
+        assert_eq!(trail_color(1, 14), Some(TRAIL_COLORS[0]));
+        assert_eq!(trail_color(14, 14), Some(TRAIL_COLORS[6]));
+        assert_eq!(trail_color(15, 14), None);
+    }
+
+    #[test]
+    fn every_trail_length_stays_inside_the_colors() {
+        for trail_length in 1..100 {
+            for distance in 1..=trail_length {
+                assert!(trail_color(distance, trail_length).is_some());
+            }
+        }
+    }
+
+    #[test]
     fn trails_never_overtake_each_other() {
         let mut column = Column::new(0, 40, &['a']);
         for _ in 0..500 {
@@ -221,14 +274,23 @@ mod tests {
     }
 
     #[test]
-    fn trails_leave_once_they_are_off_screen() {
+    fn trails_leave_once_their_top_is_off_screen() {
         let mut column = Column::new(0, 10, &['a']);
         column.speed = 0.5;
         column.rows_until_next_trail = 100.0;
-        column.trails = vec![Trail { cursor_row: 9.6 }, Trail { cursor_row: 9.4 }];
+        column.trails = vec![
+            Trail {
+                cursor_row: 12.6,
+                length: 3,
+            },
+            Trail {
+                cursor_row: 12.4,
+                length: 3,
+            },
+        ];
         column.advance(10);
         assert_eq!(column.trails.len(), 1);
-        assert!(column.trails[0].cursor_row < 10.0);
+        assert!(column.trails[0].cursor_row < 13.0);
     }
 
     #[test]
