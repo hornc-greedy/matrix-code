@@ -1,17 +1,21 @@
 //! Columns of characters in the terminal, lit by trails that move down over
 //! them.
 
-use std::io;
+use std::io::{self, IsTerminal};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use crossterm::{cursor, event, execute, terminal};
 
 /// Holds an empty screen until a key is pressed.
 ///
 /// # Errors
 ///
-/// Fails if the terminal cannot be set up, used or restored.
+/// Fails if the output is not a terminal, or if the terminal cannot be set
+/// up, used or restored.
 pub fn run() -> Result<()> {
+    if !io::stdout().is_terminal() {
+        bail!("needs a terminal, but the output is redirected");
+    }
     // A panic would otherwise leave the terminal in raw mode and hide its message
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
