@@ -12,6 +12,13 @@ use crossterm::{cursor, event, execute, terminal};
 ///
 /// Fails if the terminal cannot be set up, used or restored.
 pub fn run() -> Result<()> {
+    // A panic would otherwise leave the terminal in raw mode and hide its message
+    let default_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = restore_terminal();
+        default_panic(info);
+    }));
+
     let animated = setup_terminal()
         .context("could not set up the terminal")
         .and_then(|()| wait_for_key().context("could not wait for a key"));
