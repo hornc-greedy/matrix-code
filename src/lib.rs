@@ -80,8 +80,10 @@ fn animate() -> io::Result<()> {
         screen.advance();
         screen.draw(&mut stdout)?;
         while event::poll(next_frame.saturating_duration_since(Instant::now()))? {
-            if event::read()?.is_key_press() {
-                return Ok(());
+            match event::read()? {
+                event::Event::Resize(width, height) => screen = Screen::new(width, height),
+                event if event.is_key_press() => return Ok(()),
+                _ => {}
             }
         }
     }
