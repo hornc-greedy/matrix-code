@@ -1,0 +1,9 @@
+[package]
+name = "matrix-code"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+description = "The Matrix code as a terminal animation and screensaver"
+license = "MIT"
+
+[dependencies]
