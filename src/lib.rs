@@ -8,6 +8,10 @@ use anyhow::{Context, Result, bail};
 use crossterm::style::{Attribute, Color, Print, SetAttribute, SetForegroundColor};
 use crossterm::{cursor, event, execute, queue, terminal};
 
+pub mod font;
+
+/// Name of the program at the start of its messages.
+pub const PROGRAM: &str = env!("CARGO_PKG_NAME");
 /// Time between two frames.
 const FRAME_TIME: Duration = Duration::from_millis(33);
 /// An empty cell between columns keeps them apart, like on the operator screens.

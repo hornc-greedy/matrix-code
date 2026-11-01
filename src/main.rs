@@ -1,14 +1,18 @@
 use std::process::ExitCode;
 
-const PROGRAM: &str = env!("CARGO_PKG_NAME");
+use matrix_code::{PROGRAM, font};
 
 fn main() -> ExitCode {
-    if let Some(command) = std::env::args().nth(1) {
-        eprintln!("{PROGRAM}: unknown command '{command}'");
-        eprintln!("usage: {PROGRAM}");
-        return ExitCode::from(2);
-    }
-    if let Err(error) = matrix_code::run() {
+    let result = match std::env::args().nth(1).as_deref() {
+        None => matrix_code::run(),
+        Some("install") => font::install(),
+        Some(command) => {
+            eprintln!("{PROGRAM}: unknown command '{command}'");
+            eprintln!("usage: {PROGRAM} [install]");
+            return ExitCode::from(2);
+        }
+    };
+    if let Err(error) = result {
         eprintln!("{PROGRAM}: {error:#}");
         return ExitCode::FAILURE;
     }
