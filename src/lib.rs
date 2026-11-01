@@ -108,15 +108,17 @@ pub fn screensaver(seconds: Option<u32>) -> Result<()> {
     shell::screensaver(seconds)
 }
 
-/// Removes the font and the blocks in the shell startup files.
+/// Removes the font, the blocks in the shell startup files and the program
+/// in `~/.local/bin`.
 ///
 /// # Errors
 ///
-/// Fails if a folder cannot be found, if the font or a block cannot be
-/// removed, or if the font cache cannot be refreshed.
+/// Fails if a folder cannot be found, if the font, a block or the program
+/// cannot be removed, or if the font cache cannot be refreshed.
 pub fn uninstall() -> Result<()> {
     font::uninstall()?;
-    shell::uninstall()
+    shell::uninstall()?;
+    remove_program()
 }
 
 /// The folder for a user's programs, as the XDG Base Directory Specification
@@ -143,6 +145,20 @@ fn install_program() -> Result<()> {
     fs::rename(&copy, &program)
         .with_context(|| format!("could not replace {}", program.display()))?;
     println!("{PROGRAM}: installed {}", program.display());
+    Ok(())
+}
+
+/// Deletes the program in `~/.local/bin`. Linux and macOS free the file of a
+/// running program only once it exits.
+fn remove_program() -> Result<()> {
+    let program = bin_dir()?.join(PROGRAM);
+    match fs::remove_file(&program) {
+        Ok(()) => println!("{PROGRAM}: removed {}", program.display()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(error).with_context(|| format!("could not delete {}", program.display()));
+        }
+    }
     Ok(())
 }
 
