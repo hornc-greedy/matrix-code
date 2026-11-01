@@ -8,7 +8,7 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-use crate::PROGRAM;
+use crate::{PROGRAM, home_dir};
 
 /// Characters the bundled font draws. They lie in the Supplementary Private
 /// Use Area-B, which other fonts leave empty, so terminals fall back to the
@@ -23,25 +23,28 @@ pub fn is_installed() -> bool {
     font_dir().is_ok_and(|dir| dir.join(FILE_NAME).exists())
 }
 
-/// Copies the font into the user's font folder.
+/// Copies the font into the user's font folder and returns whether it was not
+/// there before.
 ///
 /// # Errors
 ///
 /// Fails if the font folder cannot be found or written, or if the font cache
 /// cannot be refreshed.
-pub fn install() -> Result<()> {
+pub fn install() -> Result<bool> {
     let dir = font_dir()?;
     fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
     let path = dir.join(FILE_NAME);
+    let is_new = !path.exists();
     fs::write(&path, FONT).with_context(|| format!("could not write {}", path.display()))?;
     refresh_font_cache(&dir)?;
     println!("{PROGRAM}: installed {}", path.display());
-    println!("{PROGRAM}: restart the terminal with all its windows to use the font");
-    Ok(())
+    if is_new {
+        println!("{PROGRAM}: restart the terminal with all its windows to use the font");
+    }
+    Ok(is_new)
 }
 
-/// Removes the font from the user's font folder. It is the only file the
-/// program writes.
+/// Removes the font from the user's font folder.
 ///
 /// # Errors
 ///
@@ -77,10 +80,6 @@ fn font_dir() -> Result<PathBuf> {
         Some(data) if Path::new(&data).is_absolute() => Ok(PathBuf::from(data).join("fonts")),
         _ => Ok(home_dir()?.join(".local/share/fonts")),
     }
-}
-
-fn home_dir() -> Result<PathBuf> {
-    std::env::home_dir().context("could not find the home directory")
 }
 
 /// macOS notices new fonts by itself. fontconfig on Linux needs `fc-cache`.

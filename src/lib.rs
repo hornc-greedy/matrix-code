@@ -1,14 +1,17 @@
 //! Columns of characters in the terminal, lit by trails that move down over
 //! them.
 
+use std::fs;
 use std::io::{self, IsTerminal, Write};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use crossterm::style::{Attribute, Color, Print, SetAttribute, SetForegroundColor};
 use crossterm::{cursor, event, execute, queue, terminal};
 
-pub mod font;
+mod font;
+mod shell;
 
 /// Name of the program at the start of its messages.
 pub const PROGRAM: &str = env!("CARGO_PKG_NAME");
@@ -69,6 +72,66 @@ pub fn run() -> Result<()> {
         .and_then(|()| animate(&characters).context("could not show the animation"));
     let restored = restore_terminal().context("could not restore the terminal");
     animated.and(restored)
+}
+
+/// Copies the program to `~/.local/bin`, installs the font and writes the
+/// block in the shell startup file.
+///
+/// # Errors
+///
+/// Fails if a folder cannot be found, if the program, the font or a startup
+/// file cannot be read or written, or if the font cache cannot be refreshed.
+pub fn install() -> Result<()> {
+    install_program()?;
+    let font_is_new = font::install()?;
+    shell::install()?;
+    // Restarting the terminal for a new font also reloads its shells
+    if !font_is_new {
+        shell::print_reload_hint();
+    }
+    Ok(())
+}
+
+/// Removes the font and the blocks in the shell startup files.
+///
+/// # Errors
+///
+/// Fails if a folder cannot be found, if the font or a block cannot be
+/// removed, or if the font cache cannot be refreshed.
+pub fn uninstall() -> Result<()> {
+    font::uninstall()?;
+    shell::uninstall()
+}
+
+/// The folder for a user's programs, as the XDG Base Directory Specification
+/// names it.
+fn bin_dir() -> Result<PathBuf> {
+    Ok(home_dir()?.join(".local/bin"))
+}
+
+/// Copies the running program to `~/.local/bin` unless it runs from there.
+/// The copy replaces the program by a rename, because Linux refuses to write
+/// into a running program and macOS stops a signed one that changes in place.
+fn install_program() -> Result<()> {
+    let current = std::env::current_exe()
+        .and_then(fs::canonicalize)
+        .context("could not find the program")?;
+    let dir = bin_dir()?;
+    let program = dir.join(PROGRAM);
+    if program.canonicalize().is_ok_and(|path| path == current) {
+        return Ok(());
+    }
+    fs::create_dir_all(&dir).with_context(|| format!("could not create {}", dir.display()))?;
+    let copy = dir.join(format!(".{PROGRAM}.new"));
+    fs::copy(&current, &copy).with_context(|| format!("could not write {}", copy.display()))?;
+    fs::rename(&copy, &program)
+        .with_context(|| format!("could not replace {}", program.display()))?;
+    println!("{PROGRAM}: installed {}", program.display());
+    Ok(())
+}
+
+fn home_dir() -> Result<PathBuf> {
+    std::env::home_dir().context("could not find the home directory")
 }
 
 fn setup_terminal() -> io::Result<()> {
