@@ -38,3 +38,29 @@ jobs:
           status=0
           target/${{ matrix.target }}/release/matrix-code unknown || status=$?
           test "$status" -eq 2
+      - name: Package the binary with its licenses
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          mkdir matrix-code
+          cp target/${{ matrix.target }}/release/matrix-code LICENSE assets/LICENSE-font matrix-code/
+          tar -czf matrix-code-${{ matrix.target }}.tar.gz matrix-code
+      - if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v7
+        with:
+          name: matrix-code-${{ matrix.target }}
+          path: matrix-code-${{ matrix.target }}.tar.gz
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [lint, test]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+      - run: sha256sum matrix-code-*.tar.gz > SHA256SUMS
+      - run: gh release create "$GITHUB_REF_NAME" matrix-code-*.tar.gz SHA256SUMS --repo "$GITHUB_REPOSITORY" --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
