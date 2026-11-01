@@ -46,11 +46,17 @@ pub fn run() -> Result<()> {
     if !io::stdout().is_terminal() {
         bail!("needs a terminal, but the output is redirected");
     }
-    let characters: Vec<char> = if font::is_installed() {
+    // A terminal only finds a new font after a restart, so the run that
+    // installs the font still uses the fallback characters
+    let installed = font::is_installed();
+    let characters: Vec<char> = if installed {
         font::CHARACTERS.collect()
     } else {
         fallback_characters()
     };
+    if !installed && let Err(error) = font::install() {
+        eprintln!("{PROGRAM}: could not install the font: {error:#}");
+    }
     // A panic would otherwise leave the terminal in raw mode and hide its message
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
