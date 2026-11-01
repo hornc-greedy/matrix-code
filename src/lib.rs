@@ -14,7 +14,8 @@ pub mod font;
 pub const PROGRAM: &str = env!("CARGO_PKG_NAME");
 /// Time between two frames.
 const FRAME_TIME: Duration = Duration::from_millis(33);
-/// An empty cell between columns keeps them apart, like on the operator screens.
+/// An empty cell between columns keeps them apart and leaves room for the
+/// wider glyphs of the bundled font.
 const COLUMN_SPACING: usize = 2;
 /// Color of the cursor at the bottom of each trail, from the 256-color palette.
 const CURSOR_COLOR: u8 = 231;
@@ -45,6 +46,11 @@ pub fn run() -> Result<()> {
     if !io::stdout().is_terminal() {
         bail!("needs a terminal, but the output is redirected");
     }
+    let characters: Vec<char> = if font::is_installed() {
+        font::CHARACTERS.collect()
+    } else {
+        fallback_characters()
+    };
     // A panic would otherwise leave the terminal in raw mode and hide its message
     let default_panic = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
@@ -54,7 +60,7 @@ pub fn run() -> Result<()> {
 
     let animated = setup_terminal()
         .context("could not set up the terminal")
-        .and_then(|()| animate().context("could not show the animation"));
+        .and_then(|()| animate(&characters).context("could not show the animation"));
     let restored = restore_terminal().context("could not restore the terminal");
     animated.and(restored)
 }
@@ -75,9 +81,9 @@ fn restore_terminal() -> io::Result<()> {
     left.and(cooked)
 }
 
-fn animate() -> io::Result<()> {
+fn animate(characters: &[char]) -> io::Result<()> {
     let (width, height) = terminal::size()?;
-    let mut screen = Screen::new(width, height);
+    let mut screen = Screen::new(width, height, characters);
     let mut stdout = io::stdout().lock();
     loop {
         let next_frame = Instant::now() + FRAME_TIME;
@@ -85,7 +91,9 @@ fn animate() -> io::Result<()> {
         screen.draw(&mut stdout)?;
         while event::poll(next_frame.saturating_duration_since(Instant::now()))? {
             match event::read()? {
-                event::Event::Resize(width, height) => screen = Screen::new(width, height),
+                event::Event::Resize(width, height) => {
+                    screen = Screen::new(width, height, characters);
+                }
                 event if event.is_key_press() => return Ok(()),
                 _ => {}
             }
@@ -102,15 +110,15 @@ struct Screen {
 }
 
 impl Screen {
-    fn new(width: u16, height: u16) -> Self {
-        let characters = fallback_characters();
-        let columns = (0..width)
+    fn new(width: u16, height: u16, characters: &[char]) -> Self {
+        // The last column needs both cells of a font character on the screen
+        let columns = (0..width.saturating_sub(1))
             .step_by(COLUMN_SPACING)
-            .map(|x| Column::new(x, height, &characters))
+            .map(|x| Column::new(x, height, characters))
             .collect();
         Self {
             rows: height,
-            characters,
+            characters: characters.to_vec(),
             columns,
             drawn: Vec::new(),
         }
@@ -134,7 +142,9 @@ impl Screen {
                 if self.drawn.get(cells.len()) != Some(&cell) {
                     queue!(out, cursor::MoveTo(column.x, row))?;
                     match cell {
-                        None => queue!(out, Print(' '))?,
+                        // Terminals give a character of the bundled font two
+                        // cells, and some only clear both for two spaces
+                        None => queue!(out, Print("  "))?,
                         Some((character, color)) => {
                             let weight = if color == CURSOR_COLOR {
                                 Attribute::Bold
@@ -311,14 +321,14 @@ mod tests {
 
     #[test]
     fn columns_leave_an_empty_cell_between_them() {
-        let screen = Screen::new(5, 3);
+        let screen = Screen::new(6, 3, &['a']);
         let xs: Vec<u16> = screen.columns.iter().map(|column| column.x).collect();
         assert_eq!(xs, [0, 2, 4]);
     }
 
     #[test]
     fn a_frame_without_changes_draws_nothing() {
-        let mut screen = Screen::new(5, 3);
+        let mut screen = Screen::new(6, 3, &['a']);
         let mut first = Vec::new();
         screen.draw(&mut first).unwrap();
         let mut second = Vec::new();
@@ -332,5 +342,12 @@ mod tests {
         .unwrap();
         assert!(first.len() > no_cells.len());
         assert_eq!(second, no_cells);
+    }
+
+    #[test]
+    fn the_last_column_keeps_two_cells_on_screen() {
+        let screen = Screen::new(5, 3, &['a']);
+        let xs: Vec<u16> = screen.columns.iter().map(|column| column.x).collect();
+        assert_eq!(xs, [0, 2]);
     }
 }

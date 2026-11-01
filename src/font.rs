@@ -2,6 +2,7 @@
 
 use std::fs;
 use std::io;
+use std::ops::RangeInclusive;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -9,8 +10,18 @@ use anyhow::{Context, Result, bail};
 
 use crate::PROGRAM;
 
+/// Characters the bundled font draws. They lie in the Supplementary Private
+/// Use Area-B, which other fonts leave empty, so terminals fall back to the
+/// bundled font for them.
+pub const CHARACTERS: RangeInclusive<char> = '\u{100000}'..='\u{100038}';
+
 const FONT: &[u8] = include_bytes!("../assets/matrix-code.ttf");
 const FILE_NAME: &str = "matrix-code.ttf";
+
+/// Whether the font file is in the user's font folder.
+pub fn is_installed() -> bool {
+    font_dir().is_ok_and(|dir| dir.join(FILE_NAME).exists())
+}
 
 /// Copies the font into the user's font folder.
 ///
