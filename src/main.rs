@@ -6,9 +6,10 @@ fn main() -> ExitCode {
     let result = match std::env::args().nth(1).as_deref() {
         None => matrix_code::run(),
         Some("install") => font::install(),
+        Some("uninstall") => font::uninstall(),
         Some(command) => {
             eprintln!("{PROGRAM}: unknown command '{command}'");
-            eprintln!("usage: {PROGRAM} [install]");
+            eprintln!("usage: {PROGRAM} [install | uninstall]");
             return ExitCode::from(2);
         }
     };

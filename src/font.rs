@@ -1,6 +1,7 @@
 //! The bundled font and its place in the user's font folder.
 
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -25,6 +26,31 @@ pub fn install() -> Result<()> {
     refresh_font_cache(&dir)?;
     println!("{PROGRAM}: installed {}", path.display());
     println!("{PROGRAM}: restart the terminal with all its windows to use the font");
+    Ok(())
+}
+
+/// Removes the font from the user's font folder. It is the only file the
+/// program writes.
+///
+/// # Errors
+///
+/// Fails if the font folder cannot be found, the font cannot be removed, or
+/// the font cache cannot be refreshed.
+pub fn uninstall() -> Result<()> {
+    let dir = font_dir()?;
+    let path = dir.join(FILE_NAME);
+    match fs::remove_file(&path) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            println!("{PROGRAM}: the font is not installed");
+            return Ok(());
+        }
+        Err(error) => {
+            return Err(error).with_context(|| format!("could not remove {}", path.display()));
+        }
+    }
+    refresh_font_cache(&dir)?;
+    println!("{PROGRAM}: removed {}", path.display());
     Ok(())
 }
 
