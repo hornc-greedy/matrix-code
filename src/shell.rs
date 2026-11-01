@@ -1,10 +1,11 @@
-//! Blocks in the shell startup files that put the program on the `PATH`.
+//! Blocks in the shell startup files that put the program on the `PATH` and
+//! start it as a screensaver in zsh.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::{PROGRAM, bin_dir, home_dir};
 
@@ -34,9 +35,49 @@ pub fn install() -> Result<()> {
     Ok(())
 }
 
+/// Writes the screensaver block to `.zshrc`, which starts the installed
+/// program when the prompt has waited at least the given seconds without a key
+/// press. Without seconds it removes the block.
+///
+/// # Errors
+///
+/// Fails if the home directory cannot be found, if the shell is not zsh or the
+/// program is not installed when seconds are given, or if `.zshrc` cannot be
+/// read or written.
+pub fn screensaver(seconds: Option<u32>) -> Result<()> {
+    let zshrc = zsh_dir()?.join(".zshrc");
+    let Some(seconds) = seconds else {
+        remove_block(&zshrc)?;
+        print_zsh_reload_hint();
+        return Ok(());
+    };
+    if shell_name().as_deref() != Some("zsh") {
+        bail!("the screensaver needs zsh");
+    }
+    let program = bin_dir()?.join(PROGRAM);
+    if !program.exists() {
+        bail!("run `{PROGRAM} install` first");
+    }
+    // zsh calls TRAPALRM after TMOUT seconds at the prompt and every TMOUT
+    // seconds after that. TTYIDLE counts the seconds since the last key press.
+    // A trap that returns non-zero interrupts the input line, which the `if`
+    // avoids.
+    let block = format!(
+        "TMOUT={seconds}\nTRAPALRM() {{ if (( TTYIDLE >= TMOUT )); then \"{}\"; fi; }}",
+        program.display()
+    );
+    write_block(&zshrc, &block)?;
+    print_zsh_reload_hint();
+    Ok(())
+}
+
+/// Open zsh windows keep the old `TMOUT` and `TRAPALRM` until they reload.
+fn print_zsh_reload_hint() {
+    println!("{PROGRAM}: run `exec zsh` to use the change in this window");
+}
+
 /// Removes the blocks from the startup files of every supported shell, so
-/// nothing is left after a change of shell. A file that only held a block is
-/// deleted.
+/// nothing is left after a change of shell.
 ///
 /// # Errors
 ///
@@ -44,23 +85,31 @@ pub fn install() -> Result<()> {
 /// read, written or deleted.
 pub fn uninstall() -> Result<()> {
     let home = home_dir()?;
-    let mut files = vec![home.join(".zshenv"), home.join(".bashrc")];
+    let mut files = vec![
+        home.join(".zshenv"),
+        zsh_dir()?.join(".zshrc"),
+        home.join(".bashrc"),
+    ];
     files.extend(BASH_LOGIN_FILES.map(|name| home.join(name)));
     for file in files {
-        let text = read(&file)?;
-        let rest = without_block(&text);
-        if rest == text {
-            continue;
-        }
-        if rest.trim().is_empty() {
-            fs::remove_file(&file)
-                .with_context(|| format!("could not delete {}", file.display()))?;
-        } else {
-            fs::write(&file, rest)
-                .with_context(|| format!("could not write {}", file.display()))?;
-        }
-        println!("{PROGRAM}: removed the block from {}", file.display());
+        remove_block(&file)?;
     }
+    Ok(())
+}
+
+/// Removes the block from a file and deletes a file that only held the block.
+fn remove_block(file: &Path) -> Result<()> {
+    let text = read(file)?;
+    let rest = without_block(&text);
+    if rest == text {
+        return Ok(());
+    }
+    if rest.trim().is_empty() {
+        fs::remove_file(file).with_context(|| format!("could not delete {}", file.display()))?;
+    } else {
+        fs::write(file, rest).with_context(|| format!("could not write {}", file.display()))?;
+    }
+    println!("{PROGRAM}: removed the block from {}", file.display());
     Ok(())
 }
 
@@ -118,6 +167,14 @@ fn shell_name() -> Option<String> {
             .to_string_lossy()
             .into_owned(),
     )
+}
+
+/// The folder of `.zshrc`, which zsh takes from `ZDOTDIR` or the home.
+fn zsh_dir() -> Result<PathBuf> {
+    match std::env::var_os("ZDOTDIR") {
+        Some(dir) if !dir.is_empty() => Ok(PathBuf::from(dir)),
+        _ => home_dir(),
+    }
 }
 
 /// Terminals on macOS start bash as a login shell, which reads the first of

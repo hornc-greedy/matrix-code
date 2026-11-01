@@ -15,6 +15,9 @@ mod shell;
 
 /// Name of the program at the start of its messages.
 pub const PROGRAM: &str = env!("CARGO_PKG_NAME");
+/// Seconds the zsh prompt waits at least without a key press before the
+/// screensaver starts, unless `screensaver` gets other seconds.
+pub const DEFAULT_SCREENSAVER_SECONDS: u32 = 300;
 /// Time between two frames.
 const FRAME_TIME: Duration = Duration::from_millis(33);
 /// An empty cell between columns keeps them apart and leaves room for the
@@ -90,6 +93,19 @@ pub fn install() -> Result<()> {
         shell::print_reload_hint();
     }
     Ok(())
+}
+
+/// Starts the animation as a screensaver in zsh when the prompt has waited at
+/// least the given seconds without a key press, or turns the screensaver off
+/// without seconds.
+///
+/// # Errors
+///
+/// Fails if the home directory cannot be found, if the shell is not zsh or the
+/// program is not installed when seconds are given, or if `.zshrc` cannot be
+/// read or written.
+pub fn screensaver(seconds: Option<u32>) -> Result<()> {
+    shell::screensaver(seconds)
 }
 
 /// Removes the font and the blocks in the shell startup files.
