@@ -130,6 +130,11 @@ apart ([IJPL-258252](https://youtrack.jetbrains.com/issue/IJPL-258252)). The
 Classic engine, set under Settings, Tools, Terminal, Terminal engine, shows
 them correctly.
 
+The terminal of VS Code does not fall back to the font by itself. Add
+`matrix-code` after your font in `terminal.integrated.fontFamily` in the
+settings and open a new terminal. With the default fonts that is
+`"Menlo, matrix-code"` on macOS and `"'Droid Sans Mono', matrix-code"` on Linux.
+
 ## Uninstall
 
 `uninstall` removes the font, the blocks from the startup files of zsh and
